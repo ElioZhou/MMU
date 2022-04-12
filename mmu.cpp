@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <fstream>
-
 using namespace std;
 
 const int MAX_VPAGE = 64;
@@ -11,7 +10,7 @@ const int ERASE = 0;
 
 int vPage;
 char operation;
-bool O = true, P = true, F = true, S = true, x = false, f = true;
+bool O = true, P = true, F = true, S = true, x = false, f = false;
 unsigned long long cost = 0, instrCount = 0, rwCount = 0;
 unsigned long long contextSwitchCount = 0, processExitCount = 0;
 unsigned long ofs = 0;
@@ -126,13 +125,13 @@ class Frame {
 public:
     PTE *pte;
     unsigned int fid;
+    unsigned int age: 32;
     //Redundant
     int pid, vPage;
     bool isMapped;
 
 //    bitset<32> bitcount;
 //    unsigned int last_time;
-//    Frame():pte(nullptr),is_free(false),is_mapped(false),process_id(-1),vpage(-1),bitcount(0),last_time(0){};
     Frame(unsigned int frame_id) {
         pte = nullptr;
         pid = -1;
@@ -180,6 +179,8 @@ public:
         pte->fid = fid;
         pte->present = 1;
         if (O) cout << " MAP" << " " << fid << endl;
+        //Note the age has to be reset to 0 on each MAP operation.
+        age = 0;
     }
 
     void reset() {
@@ -311,57 +312,34 @@ class ESC : public Pager {
     }
 };
 
-class ESC1 : public Pager
-{
-public:
-    ESC1(){
-        int hand = 0;
-    }
-    int threshold = 49;
-    Frame* selectVictimFrame(){
-        int lowest_class  = 10;
-        Frame* victim_frame = NULL;
-        int curr_hand_position = hand;
-        //cout << "curr_hand_position" << curr_hand_position << endl;
-        do{
-            //cout << "hand" << hand;
-            Frame* frame = frameTable[hand];
-            PTE* pte = &((processList.at(frame->pid))->pageTable[frame->vPage]);
-            int curr_class = 2 * pte->referenced + pte->modified;
-            if(curr_class < lowest_class){
-                lowest_class = curr_class;
-                victim_frame = frame;
-            }
-            hand = hand + 1;
-            if(hand>= MAX_FRAMES)
-                hand = 0;
-            if(lowest_class == 0)
-                break;
-        }
-        while(hand != curr_hand_position);
-        if (instrCount >= this->threshold)
-        {
-            this->threshold = instrCount + 50;
-            resetRBit();
-        }
-        hand = victim_frame->fid + 1;
-        if(hand >= MAX_FRAMES) hand = 0;
-//        printf("Choose fid: %d, startHand = %d\n", victim_frame->fid, curr_hand_position);
-//        printf("r: %d, s: %d\n",victim_frame->pte->referenced, victim_frame->pte->modified);
-        return victim_frame;
-    }
-    static void resetRBit() {
-        for (Frame *frame: frameTable) {
-            frame->pte->referenced = false;
-        }
-    }
-};
-
-
 
 class Aging : public Pager {
-    Frame *selectVictimFrame() override {
 
+    Frame *selectVictimFrame() override {
+        //Iterate over frame table, get the r bit, merge into the age.
+        for(Frame* frame: frameTable) {
+            frame->age = frame->age >> 1;
+            if(frame->pte->referenced) {
+                frame->age = (frame->age | 0x80000000);
+                frame->pte->referenced = false;
+            }
+//            cout << "XXXXXXXXX\n";
+        }
+        //Iterate again, find the smallest age.
+        unsigned int handStart = hand;
+        bool firstStart = true;
+        cout << "Start:" << handStart;
+        Frame *victimFrame = frameTable[hand];
+        while (firstStart || hand != handStart) {
+            firstStart = false;
+            hand++;
+            if (hand == MAX_FRAMES) hand = 0;
+            if (frameTable[hand]->age < victimFrame->age)
+                victimFrame = frameTable[hand];
+        }
+        hand = victimFrame->fid + 1;
+        if (hand == MAX_FRAMES) hand = 0;
+        return victimFrame;
     }
 };
 
@@ -433,6 +411,25 @@ void printFrameTableR() {
     cout << endl;
 }
 
+
+void printFrameTableA() {
+    cout << "FT:";
+    int i = 0;
+    for (Frame *frame: frameTable) {
+        if (frame->isMapped) {
+//            cout << " " << i << ":" << frame->pid << ":" << frame->vPage;
+//            cout << " " << frame->pid << ":" << frame->vPage;
+            cout << " " << i << ":";
+            if (processList[frame->pid]->pageTable[frame->vPage].referenced)
+                cout << 'r';
+            printf("0x%08X", frame->age);
+//            cout << frame->age;
+        } else cout << " *";
+        i++;
+//        printf("fid: %d, isMapped: %d\n", frame->fid, frame->isMapped);
+    }
+    cout << endl;
+}
 
 void initFrameTables() {
     for (unsigned int i = 0; i < MAX_FRAMES; i++) {
@@ -662,13 +659,13 @@ void readRandFile() {
 
 int main(int argc, char *argv[]) {
 //    readFile(argv[0]);
-    readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in7");
+    readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in11");
 //    pager = new FIFO();
     readRandFile();
 //    pager = new Random();
 //    pager = new Clock();
-    pager = new ESC();
-
+//    pager = new ESC();
+    pager = new Aging();
     initFrameTables();
 //    unsigned long instrCount = 0;
 
@@ -762,7 +759,7 @@ int main(int argc, char *argv[]) {
             }
         }
 //        if(x) printPageTable();
-        if (f && instrCount <3000 ) printFrameTableR();
+        if (f && instrCount <3000 ) printFrameTableA();
 //        cout << "hand:";
 //        cout << pager->hand << endl;
     }
