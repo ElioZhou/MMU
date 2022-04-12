@@ -10,7 +10,7 @@ const int ERASE = 0;
 
 int vPage;
 char operation;
-bool O = true, P = true, F = true, S = true;
+bool O = true, P = true, F = true, S = true, x = false, f = true;
 //bool O = false, P = true, F = false, S = false;
 unsigned long ofs = 0;
 ifstream infile;
@@ -86,17 +86,35 @@ public:
 
     Process() = default;
 
-    void printPageTable() {
-        printf("pid: %d\n", pid);
-        for (PTE pte: pageTable) {
-//            pte.toString();
-        }
-    }
+
 };
 
 
 vector<Process *> processList;
-
+void printPageTable() {
+    for (Process *process: processList) {
+        // print table
+        printf("PT[%d]:", process->pid);
+        int i = 0;
+        for (PTE pte : process->pageTable) {
+            if (pte.present) {
+                cout << " " << i << ":";
+                if(pte.referenced) cout << "R";
+                else cout << "-";
+                if (pte.modified) cout << "M";
+                else cout << "-";
+                if (pte.pagedout) cout << "S";
+                else cout << "-";
+            }
+            else if(!pte.present) {
+                if(pte.pagedout) cout << " #";
+                else cout << " *";
+            }
+            i++;
+        }
+        cout << endl;
+    }
+}
 
 class Frame {
 public:
@@ -210,7 +228,17 @@ class Random : public Pager {
 
 class Clock : public Pager {
     Frame *selectVictimFrame() override {
-
+        while(frameTable[hand]->pte->referenced) {
+            frameTable[hand]->pte->referenced = false;
+            hand++;
+            if(hand == MAX_FRAMES) hand = 0;
+        }
+//        printf("frameTable[%d]: %d\n",hand,processList[frameTable[hand]->pid]->pageTable[frameTable[hand]->vPage].referenced);
+        Frame *victimFrame = frameTable[hand];
+        // Must do this.
+        hand++;
+        if(hand == MAX_FRAMES) hand = 0;
+        return victimFrame;
     }
 };
 
@@ -265,9 +293,16 @@ void printFreeFrameList() {
 
 void printFrameTable() {
     cout << "FT:";
+    int i = 0;
     for(Frame* frame: frameTable) {
-        if(frame->isMapped) cout << " " << frame->pid << ":" << frame->vPage;
+        if(frame->isMapped) {
+//            cout << " " << i << ":" << frame->pid << ":" << frame->vPage;
+            cout << " " << frame->pid << ":" << frame->vPage;
+//            if(processList[frame->pid]->pageTable[frame->vPage].referenced);
+//                cout << 'r';
+        }
         else cout << " *";
+        i++;
 //        printf("fid: %d, isMapped: %d\n", frame->fid, frame->isMapped);
     }
     cout << endl;
@@ -358,23 +393,15 @@ void setPageTable(Process *proc, unsigned int start_vpage, unsigned int end_vpag
 
 
 /**
- * Print page table
- */
-void printPageTable() {
-    for (Process *process: processList) {
-//        printf("PT[%d]", )
-    }
-}
-
-
-/**
  * Things to do after process exits
  * @param process
  */
 void processExits(Process *process) {
-    for (PTE pte: process->pageTable) {
-        if (pte.present) {
-            Frame *frame = frameTable[pte.fid];
+    for (int i = 0; i < MAX_VPAGE ; i++) {
+        // Must use a pointer, cannot just get the PTE itself
+        PTE *pte = &process->pageTable[i];
+        if (pte->present) {
+            Frame *frame = frameTable[pte->fid];
             updateFreeFrameList(INSERT, frame);
             if (O) printf(" UNMAP %d:%d\n", frame->pid, frame->vPage);
             process->unmaps += 1;
@@ -382,11 +409,11 @@ void processExits(Process *process) {
         }
         //Note that dirty non-fmapped (anonymous) pages are not written
         //back (OUT) as the process exits.
-        if (pte.modified && pte.fileMapped) {
+        if (pte->modified && pte->fileMapped) {
             if (O) cout << " FOUT" << endl;
             process->fouts += 1;
         }
-        pte.reset();
+        pte->reset();
     }
 }
 
@@ -518,7 +545,8 @@ int main(int argc, char *argv[]) {
     readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in11");
 //    pager = new FIFO();
     readRandFile();
-    pager = new Random();
+//    pager = new Random();
+    pager = new Clock();
     initFrameTables();
 //    unsigned long instrCount = 0;
     unsigned long long cost = 0, instrCount = 0, rwCount = 0;
@@ -612,10 +640,14 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+//        if(x) printPageTable();
+//        if(f) printFrameTable();
+//        cout << "hand:";
+//        cout << pager->hand << endl;
     }
-//    if(P) printPageTable();
-    if (F) printFrameTable();
-    if (S) {
+    if(P) printPageTable();
+    if(F) printFrameTable();
+    if(S) {
         cost += rwCount + 130 * contextSwitchCount + 1250 * processExitCount;
         for (Process *process: processList) {
             printf("PROC[%d]: U=%lu M=%lu I=%lu O=%lu FI=%lu FO=%lu Z=%lu SV=%lu SP=%lu\n",
@@ -629,7 +661,7 @@ int main(int argc, char *argv[]) {
         printf("TOTALCOST %llu %llu %llu %llu %lu\n",
                instrCount, contextSwitchCount, processExitCount, cost, sizeof(PTE));
     }
-    if (O) {}
+    if(O) {}
 }
 
 
