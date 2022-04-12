@@ -1,22 +1,22 @@
 #include <iostream>
 #include <vector>
 #include <fstream>
-#include <sstream>
-
 using namespace std;
 
 const int MAX_VPAGE = 64;
-const int MAX_FRAMES = 16;
+const int MAX_FRAMES = 32;
 const int INSERT = 1;
 const int ERASE = 0;
+
 int vPage;
 char operation;
 bool O = true, P = true, F = true, S = true;
+//bool O = false, P = true, F = false, S = false;
+unsigned long ofs = 0;
 ifstream infile;
+vector<int> randList;
 
-
-
-class PTE{
+class PTE {
 public:
     unsigned int present: 1;
     unsigned int referenced: 1;
@@ -27,7 +27,8 @@ public:
     // The maximum number of frames is 128
     unsigned int fid: 7;
     // You first determine that the vpage can be accessed, i.e. it is part of one of the VMAs.
-    unsigned int inVma: 1;
+    unsigned int inVMA: 1;
+
     PTE() {
         present = 0;
         modified = 0;
@@ -36,27 +37,31 @@ public:
         pagedout = 0;
         fileMapped = 0;
         fid = 0;
-        inVma = 0;
+        inVMA = 0;
     };
+
     //Note once the PAGEDOUT flag is set it will
     //never be reset as it indicates there is content on the swap device)
     //and then the PTE’s frame must be set and the valid bit can be set.
     void reset() {
-        if(pagedout) {
-
-        }
-        else {
-
-        }
+        present = 0;
+        referenced = 0;
+        modified = 0;
+        writeProtected = 0;
+        pagedout = 0;
+        fileMapped = 0;
+        fid = 0;
+        inVMA = 0;
     };
-    void toString() {
-        printf("present: %d, referenced: %d, modified: %d, writeProtected: %d, pagedout: %d, fileMapped: %d, fid: %d, inVma: %d\n",
-               present, referenced, modified, writeProtected, pagedout, fileMapped, fid, inVma);
-    }
+
+//    void toString() {
+//        printf("present: %lu, referenced: %d, modified: %d, writeProtected: %d, pagedout: %d, fileMapped: %d, fid: %d, inVMA: %d\n",
+//               present, referenced, modified, writeProtected, pagedout, fileMapped, fid, inVMA);
+//    }
 };
 
 
-class VMA{
+class VMA {
 public:
     unsigned int startVpage;
     unsigned int endVpage;
@@ -65,36 +70,37 @@ public:
 };
 
 
-class Process{
+class Process {
 public:
     int pid;
-    vector<VMA*> VMAList;
+    vector<VMA *> VMAList;
     PTE pageTable[MAX_VPAGE];
     // stats
-    unsigned long unmaps, maps, ins, outs;
-    unsigned long fins, fouts, zeros, segv, segprot;
+    unsigned long unmaps = 0, maps = 0, ins = 0, outs = 0;
+    unsigned long fins = 0, fouts = 0, zeros = 0, segv = 0, segprot = 0;
+
 //    bool is_vpage_filemapped(int vpage);
 //    bool is_vpage_protected(int vpage);
 //    void print_table();
 //    VMA* get_vpage(int vpage);
-    Process() {
 
-    };
+    Process() = default;
+
     void printPageTable() {
         printf("pid: %d\n", pid);
-        for(PTE pte : pageTable) {
-            pte.toString();
+        for (PTE pte: pageTable) {
+//            pte.toString();
         }
     }
 };
 
 
-vector<Process*> processList;
+vector<Process *> processList;
 
 
-class Frame{
+class Frame {
 public:
-    PTE* pte;
+    PTE *pte;
     unsigned int fid;
     //Redundant
     int pid, vPage;
@@ -110,41 +116,38 @@ public:
         isMapped = false;
         fid = frame_id;
     }
+
     void unMap() {
-        if(!isMapped) return;
+        if (!isMapped) return;
         //Its entry in the owning process’s page_table must be removed
         pte->fid = 0;
         pte->present = 0;
         processList[pid]->unmaps += 1;
         //You must inspect the state of the R and M bits. If the page was modified, then the page frame must be
         //paged out to the swap device (“OUT”) or in case it was file mapped it has to be written back to the file (“FOUT”).
-        if(pte->modified && pte->fileMapped) {
-            if(O) {
+        if (pte->modified && pte->fileMapped) {
+            if (O) {
                 cout << " UNMAP" << " " << pid << ":" << vPage << endl;
-                cout << "FOUT" << endl;
+                cout << " FOUT" << endl;
             }
             processList[pid]->fouts += 1;
 //            pte->referenced =false;
-            pte->modified=false;
-        }
-        if(pte->modified && !pte->fileMapped) {
-            if(O) {
-                cout << "UNMAP" << " " << pid << ":" << vPage << endl;
-                cout << "OUT" << endl;
+            pte->modified = false;
+        } else if (pte->modified && !pte->fileMapped) {
+            if (O) {
+                cout << " UNMAP" << " " << pid << ":" << vPage << endl;
+                cout << " OUT" << endl;
             }
-            pte->pagedout=true;
+            pte->pagedout = true;
             processList[pid]->outs += 1;
-            pte->modified=false;
+            pte->modified = false;
+        } else {
+            if (O) cout << " UNMAP" << " " << pid << ":" << vPage << endl;
         }
-        else {
-            if(O) cout << "UNMAP" << " " << pid << ":" << vPage << endl;
-        }
-        isMapped = false;
-        pid = 0;
-        vPage = 0;
-        pte = nullptr;
+        reset();
     }
-    void map(PTE * pteParsed, int pidParsed, int v_page) {
+
+    void map(PTE *pteParsed, int pidParsed, int v_page) {
         pte = pteParsed;
         pid = pidParsed;
         vPage = v_page;
@@ -152,13 +155,20 @@ public:
         processList[pid]->maps += 1;
         pte->fid = fid;
         pte->present = 1;
-        if(O) cout << "MAP" << " " << fid << endl;
+        if (O) cout << " MAP" << " " << fid << endl;
+    }
+
+    void reset() {
+        pte = nullptr;
+        pid = -1;
+        vPage = -1;
+        isMapped = false;
     }
 };
 
 
-
-class Pager{
+/// When call pager, we can guarantee there's no free frame
+class Pager {
 public:
 //    vector<Frame*> queue;
     unsigned int hand;
@@ -167,21 +177,65 @@ public:
     Pager() {
         hand = 0;
     };
-    virtual Frame* selectVictimFrame() = 0;
+
+    virtual Frame *selectVictimFrame() = 0;
 //    virtual void update(Frame *f) = 0;
 };
 
-Frame* frameTable[MAX_FRAMES];
 
-class FIFO: public Pager {
+Frame *frameTable[MAX_FRAMES];
+
+
+class FIFO : public Pager {
 public:
-    Frame* selectVictimFrame() {
-        if(hand == MAX_FRAMES) hand = 0;
-        Frame* victimFrame = frameTable[hand];
+    Frame *selectVictimFrame() override {
+        if (hand == MAX_FRAMES) hand = 0;
+        Frame *victimFrame = frameTable[hand];
         hand++;
         return victimFrame;
     }
 };
+
+
+int myRandom();
+
+
+class Random : public Pager {
+    Frame *selectVictimFrame() override {
+        Frame *victimFrame = frameTable[myRandom()];
+        return victimFrame;
+    }
+};
+
+
+class Clock : public Pager {
+    Frame *selectVictimFrame() override {
+
+    }
+};
+
+
+class NRU : public Pager {
+    Frame *selectVictimFrame() override {
+
+    }
+};
+
+
+class Aging : public Pager {
+    Frame *selectVictimFrame() override {
+
+    }
+};
+
+
+class WorkingSet : public Pager {
+    Frame *selectVictimFrame() override {
+
+    }
+};
+
+
 ///---------------Initialize Data Structures Needed---------------///
 
 
@@ -189,12 +243,14 @@ void printPTE(PTE pte);
 //You must define a global frame_table that each operating system maintains to describe the usage of each of its physical
 //frames and where you maintain reverse mappings to the process and the vpage that maps a particular frame. Note, that in this
 //assignment a frame can only be mapped by at most one PTE at a time, which simplifies things significantly
-Pager* pager;
-deque<Frame*> freeFrameList;
+Pager *pager;
+deque<Frame *> freeFrameList;
 //vector<Process*> processList;
 
 
 ///---------------Sub Functions about frame---------------///
+
+
 void printFreeFrameList() {
     auto it = freeFrameList.begin();
     printf("Free List:\n");
@@ -206,12 +262,15 @@ void printFreeFrameList() {
     printf("Free List End\n");
 }
 
+
 void printFrameTable() {
     cout << "FT:";
     for(Frame* frame: frameTable) {
-        cout << " " << frame->pid << ":" << frame->vPage;
+        if(frame->isMapped) cout << " " << frame->pid << ":" << frame->vPage;
+        else cout << " *";
 //        printf("fid: %d, isMapped: %d\n", frame->fid, frame->isMapped);
     }
+    cout << endl;
 }
 
 
@@ -225,9 +284,16 @@ void initFrameTables() {
 //    printFreeFrameList();
 }
 
+
+/**
+ * Insert to or erase frame from free list after unmapping or mapping
+ * @param op
+ * @param frame
+ * @return
+ */
 bool updateFreeFrameList(int op, Frame* frame) {
     if(op == INSERT) {
-        freeFrameList.push_front(frame);
+        freeFrameList.push_back(frame);
         return true;
     }
     else if(op == ERASE) {
@@ -238,19 +304,18 @@ bool updateFreeFrameList(int op, Frame* frame) {
         }
         else return false;
     }
+    return false;
 }
-
-
 
 
 /**
  * Allocate frame from free frame list
  * @return
  */
-Frame* allocateFrameFromFreeList() {
-    if(freeFrameList.empty()) return nullptr;
+Frame *allocateFrameFromFreeList() {
+    if (freeFrameList.empty()) return nullptr;
     else {
-        Frame* frame = freeFrameList.front();
+        Frame *frame = freeFrameList.front();
 //        frame->isMapped = true;
         freeFrameList.erase(freeFrameList.begin());
         return frame;
@@ -262,13 +327,16 @@ Frame* allocateFrameFromFreeList() {
  * Get a free frame
  * @return
  */
-Frame* getFrame() {
-    Frame* frame = allocateFrameFromFreeList();
+Frame *getFrame() {
+    Frame *frame = allocateFrameFromFreeList();
     if (frame == nullptr) {
         frame = pager->selectVictimFrame();
     }
     return frame;
 }
+
+
+///---------------Sub Functions about process and page table---------------///
 
 
 /**
@@ -279,12 +347,46 @@ Frame* getFrame() {
  * @param write_protected
  * @param file_mapped
  */
-void setPageTable(Process* proc, unsigned int start_vpage, unsigned int end_vpage,
+void setPageTable(Process *proc, unsigned int start_vpage, unsigned int end_vpage,
                   unsigned int write_protected, unsigned int file_mapped) {
-    for(unsigned int i = start_vpage; i <= end_vpage; i++) {
+    for (unsigned int i = start_vpage; i <= end_vpage; i++) {
         proc->pageTable[i].writeProtected = write_protected;
         proc->pageTable[i].fileMapped = file_mapped;
-        proc->pageTable[i].inVma = 1;
+        proc->pageTable[i].inVMA = 1;
+    }
+}
+
+
+/**
+ * Print page table
+ */
+void printPageTable() {
+    for (Process *process: processList) {
+//        printf("PT[%d]", )
+    }
+}
+
+
+/**
+ * Things to do after process exits
+ * @param process
+ */
+void processExits(Process *process) {
+    for (PTE pte: process->pageTable) {
+        if (pte.present) {
+            Frame *frame = frameTable[pte.fid];
+            updateFreeFrameList(INSERT, frame);
+            if (O) printf(" UNMAP %d:%d\n", frame->pid, frame->vPage);
+            process->unmaps += 1;
+            frame->reset();
+        }
+        //Note that dirty non-fmapped (anonymous) pages are not written
+        //back (OUT) as the process exits.
+        if (pte.modified && pte.fileMapped) {
+            if (O) cout << " FOUT" << endl;
+            process->fouts += 1;
+        }
+        pte.reset();
     }
 }
 
@@ -293,10 +395,10 @@ void setPageTable(Process* proc, unsigned int start_vpage, unsigned int end_vpag
  * Verify this is actually a valid page in a vma if not raise error and next inst
  * @param proc, page
  */
-VMA* getVMAofPage(Process* proc, int page) {
+VMA *getVMAofPage(Process *proc, int page) {
     auto it = proc->VMAList.begin();
-    while(it != proc->VMAList.end()){
-        if(page >= (*it)->startVpage && page <= (*it)->endVpage){
+    while (it != proc->VMAList.end()) {
+        if (page >= (*it)->startVpage && page <= (*it)->endVpage) {
             return *it;
         }
         it++;
@@ -304,13 +406,16 @@ VMA* getVMAofPage(Process* proc, int page) {
     return nullptr;
 }
 
+
 ///---------------Sub Functions about reading file---------------///
+
+
 /**
  * Get next line from input file
  * @param line
  * @return
  */
-bool getNewLine(string& line) {
+bool getNewLine(string &line) {
     if (infile.peek() == EOF) {
         return false;
     }
@@ -328,29 +433,29 @@ void readFile(string file) {
     string line;
     getNewLine(line);
 //    cout << line[0] << endl;
-    while(line[0] == '#') {
+    while (line[0] == '#') {
         getNewLine(line);
     }
 //    cout << line;
     int processCount = stoi(line);
-    for(int i = 0; i < processCount; i++) {
-        Process* process = new Process();
+    for (int i = 0; i < processCount; i++) {
+        Process *process = new Process();
         process->pid = i;
         getNewLine(line);
-        while(line[0] == '#') {
+        while (line[0] == '#') {
             getNewLine(line);
         }
 //        cout <<line;
         int VMACount = stoi(line);
-        for(int j = 0; j < VMACount; j++) {
+        for (int j = 0; j < VMACount; j++) {
             getNewLine(line);
-            while(line[0] == '#') {
+            while (line[0] == '#') {
                 getNewLine(line);
             }
 //            cout <<line;
-            VMA* vma = new VMA();
-            const char* DELIMITER = " \t\n\r\v\f";
-            char* line_c = (char*)line.c_str();
+            VMA *vma = new VMA();
+            const char *DELIMITER = " \t\n\r\v\f";
+            char *line_c = (char *) line.c_str();
             vma->startVpage = atoi(strtok(line_c, DELIMITER));
             vma->endVpage = atoi(strtok(nullptr, DELIMITER));
             vma->writeProtected = atoi(strtok(nullptr, DELIMITER));
@@ -372,12 +477,12 @@ void readFile(string file) {
  */
 bool getNextInstruction() {
     string line;
-    if(!getNewLine(line)) {
+    if (!getNewLine(line)) {
         return false;
     }
 //    getNewLine(line);
-    while(line[0] == '#') {
-        if(!getNewLine(line)) {
+    while (line[0] == '#') {
+        if (!getNewLine(line)) {
             return false;
         }
     }
@@ -390,56 +495,66 @@ bool getNextInstruction() {
 }
 
 
-void printPageTable() {
-    for(Process* process : processList) {
-
-    }
+int myRandom(){
+    if(ofs == randList.size()) ofs = 0;
+    else ofs++;
+//    cout << "ofs:";
+//    cout << ofs << endl;
+    return randList[ofs] % MAX_FRAMES;
 }
 
-int main(int argc, char *argv[]) {
 
+void readRandFile() {
+    ifstream randFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/rfile");
+    string randstr;
+    while (randFile >> randstr)
+        randList.push_back(stoi(randstr, nullptr, 10));
+    randFile.close();
+}
+
+
+int main(int argc, char *argv[]) {
 //    readFile(argv[0]);
-    readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in2");
-    pager = new FIFO();
+    readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in11");
+//    pager = new FIFO();
+    readRandFile();
+    pager = new Random();
     initFrameTables();
-    Process *currentProcess;
 //    unsigned long instrCount = 0;
     unsigned long long cost = 0, instrCount = 0, rwCount = 0;
-    unsigned long long contextSwitches = 0, processExits = 0;
+    unsigned long long contextSwitchCount = 0, processExitCount = 0;
+    Process *currentProcess;
     while (getNextInstruction()) {
         // handle special case of “c” and “e” instruction
 //        cout << operation << ":" << vPage << endl;
         if (O) {
-            printf("%d: ==> %c %d\n", instrCount, operation, vPage);
+            printf("%llu: ==> %c %d\n", instrCount, operation, vPage);
         }
         instrCount++;
         if (operation == 'c') {
             currentProcess = processList[vPage];
-//            Context_Switch = Context_Switch + 1;
-//            cost = cost + 130;
-        }
-        else if (operation == 'e') {
-//            cout << "EXIT current process " << currentProcess->pid << '\n';
-//            after_exit(CURRENT_PROCESS);
-//            process_exits = process_exits + 1;
-//            cost = cost + 1250;
+            contextSwitchCount += 1;
+        } else if (operation == 'e') {
+            cout << "EXIT current process " << currentProcess->pid << '\n';
+            processExits(currentProcess);
+            processExitCount += 1;
+            currentProcess = nullptr;
+            continue;
             // code to free all frames and everything for that process
-        }
-        else {
+        } else {
             rwCount += 1;
             // now the real instructions for read and write
             PTE *pte = &currentProcess->pageTable[vPage];
             // Not in VMA or not initialized
-            if (!pte->inVma) {
-                VMA* vma = getVMAofPage(currentProcess, vPage);
-                if(!vma) {
+            if (!pte->inVMA) {
+                VMA *vma = getVMAofPage(currentProcess, vPage);
+                if (!vma) {
                     // This in reality generates the page fault exception
                     cout << "SEGV" << endl;
                     currentProcess->segv += 1;
                     continue;
-                }
-                else {
-                    pte->inVma = true;
+                } else {
+                    pte->inVMA = true;
                     setPageTable(currentProcess, vma->startVpage,
                                  vma->endVpage, vma->writeProtected, vma->fileMapped);
                 }
@@ -460,17 +575,16 @@ int main(int argc, char *argv[]) {
                 //Now the frame can be reused for the faulting instruction.
                 //First the PTE must be reset
 //                pte->reset();
-                if(pte->pagedout) {
-                    if(O) cout << "IN" << endl;
+                if (pte->pagedout) {
+                    if (O) cout << " IN" << endl;
                     currentProcess->ins += 1;
-                }
-                else if(pte->fileMapped) {
-                    if(O) cout << "FIN" << endl;
+                } else if (pte->fileMapped) {
+                    if (O) cout << " FIN" << endl;
                     currentProcess->fins += 1;
                 }
                     // Not modified before
                 else {
-                    if(O) cout << "ZERO" << endl;
+                    if (O) cout << " ZERO" << endl;
                     currentProcess->zeros += 1;
                 }
 
@@ -482,30 +596,28 @@ int main(int argc, char *argv[]) {
 //                never swapped out and is not file mapped, then by definition it still has a zero filled content and you issue the “ZERO” output
                 pte->fid = allocatedFrame->fid;
 
-            }
-            else if(pte->present) {
-                Frame* frame;
+            } else if (pte->present) {
+                Frame *frame;
             }
             // simulate instruction execution by hardware by updating the R/M PTE bits
             // update_pte(read/modify) bits based on operations.
             pte->referenced = true;
-            if(operation == 'w') {
+            if (operation == 'w') {
                 // check write protection
-                if(pte->writeProtected) {
+                if (pte->writeProtected) {
                     cout << " SEGPROT" << endl;
                     currentProcess->segprot++;
-                }
-                else {
+                } else {
                     pte->modified = true;
                 }
             }
         }
     }
-    if(P) printPageTable();
-    if(F) printFrameTable();
-    if(S) {
-        cost += instrCount + 130 * contextSwitches + 1250 * processExits;
-        for(Process* process: processList) {
+//    if(P) printPageTable();
+    if (F) printFrameTable();
+    if (S) {
+        cost += rwCount + 130 * contextSwitchCount + 1250 * processExitCount;
+        for (Process *process: processList) {
             printf("PROC[%d]: U=%lu M=%lu I=%lu O=%lu FI=%lu FO=%lu Z=%lu SV=%lu SP=%lu\n",
                    process->pid, process->unmaps, process->maps, process->ins,
                    process->outs, process->fins, process->fouts, process->zeros,
@@ -515,9 +627,9 @@ int main(int argc, char *argv[]) {
                     + 140 * process->zeros + 340 * process->segv + 420 * process->segprot;
         }
         printf("TOTALCOST %llu %llu %llu %llu %lu\n",
-               instrCount, contextSwitches, processExits, cost, sizeof(PTE));
+               instrCount, contextSwitchCount, processExitCount, cost, sizeof(PTE));
     }
-    if(O) {}
+    if (O) {}
 }
 
 
