@@ -260,11 +260,7 @@ class ESC : public Pager {
         bool firstStart = true;
         Frame *firstFrameOfClass[4] = {nullptr};
         Frame *victimFrame;
-        if (instrCount - instAfterReset >= 50) {
-            printf("RESET!");
-            resetRBit();
-            instAfterReset = instrCount;
-        }
+
 //        printf("r: %d, ins: %d\n", reset, instrCount);
         while (firstStart || hand != handStart) {
             firstStart = false;
@@ -296,6 +292,12 @@ class ESC : public Pager {
 //                if (hand == MAX_FRAMES) hand = 0;
                 victimFrame = currentFrame;
             }
+        }
+        //Reset after finding the victim.
+        if (instrCount - instAfterReset >= 50) {
+            printf("RESET!");
+            resetRBit();
+            instAfterReset = instrCount;
         }
         hand = victimFrame->fid + 1;
         if (hand == MAX_FRAMES) hand = 0;
@@ -760,7 +762,7 @@ int main(int argc, char *argv[]) {
             }
         }
 //        if(x) printPageTable();
-        if (f ) printFrameTableR();
+        if (f && instrCount <3000 ) printFrameTableR();
 //        cout << "hand:";
 //        cout << pager->hand << endl;
     }
