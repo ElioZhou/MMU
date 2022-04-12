@@ -256,11 +256,8 @@ class ESC : public Pager {
     Frame *selectVictimFrame() override {
         bool reset = false;
         unsigned int handStart = hand;
-        printf("start: %d\n", handStart);
         bool firstStart = true;
         Frame *firstFrameOfClass[4] = {nullptr};
-        Frame *victimFrame;
-
 //        printf("r: %d, ins: %d\n", reset, instrCount);
         while (firstStart || hand != handStart) {
             firstStart = false;
@@ -270,10 +267,17 @@ class ESC : public Pager {
             if (classIndex == 0) {
 //                printf("Choose fid: %d, startHand = %d\n", frame->fid, handStart);
 //                printf("r: %d, s: %d\n",frame->pte->referenced, frame->pte->modified);
-                firstFrameOfClass[0] = frame;
+//                firstFrameOfClass[classIndex] = frame;
 //                victimFrame = frame;
-                break;
-//                return frame;
+//                break;
+                if (instrCount - instAfterReset >= 50) {
+                    printf("RESET!");
+                    resetRBit();
+                    instAfterReset = instrCount;
+                }
+                hand = frame->fid + 1;
+                if (hand == MAX_FRAMES) hand = 0;
+                return frame;
             }
             if (!firstFrameOfClass[classIndex]) {
                 firstFrameOfClass[classIndex] = frame;
@@ -281,27 +285,25 @@ class ESC : public Pager {
             hand++;
             if (hand == MAX_FRAMES) hand = 0;
         }
-        //Second cycle, hand == handStart, get the smallest
-        for (int i = 3; i >= 0; i--) {
-            Frame *currentFrame = firstFrameOfClass[i];
-            if (currentFrame) {
-//                printf("Choose fid: %d, startHand = %d\n", frame->fid, handStart);
-//                Once a victim frame is determined, the hand is set to the next position
-//                after the victim frame for the next select_victim_frame() invocation.
-//                hand = frame->fid + 1;
-//                if (hand == MAX_FRAMES) hand = 0;
-                victimFrame = currentFrame;
-            }
-        }
-        //Reset after finding the victim.
         if (instrCount - instAfterReset >= 50) {
             printf("RESET!");
             resetRBit();
             instAfterReset = instrCount;
         }
-        hand = victimFrame->fid + 1;
-        if (hand == MAX_FRAMES) hand = 0;
-        return victimFrame;
+        //Second cycle, hand == handStart, get the smallest
+        for (Frame *frame: firstFrameOfClass)
+            if (frame) {
+//                printf("Choose fid: %d, startHand = %d\n", frame->fid, handStart);
+//                Once a victim frame is determined, the hand is set to the next position
+//                after the victim frame for the next select_victim_frame() invocation.
+//                hand = frame->fid + 1;
+//                if (hand == MAX_FRAMES) hand = 0;
+                hand = frame->fid + 1;
+                if (hand == MAX_FRAMES) hand = 0;
+                return frame;
+            }
+        //Reset after finding the victim.
+
     }
 
     static void resetRBit() {
@@ -662,7 +664,7 @@ void readRandFile() {
 
 int main(int argc, char *argv[]) {
 //    readFile(argv[0]);
-    readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in7");
+    readFile("/Users/ethan/Documents/NYU/22 Spring/Operating Systems/Labs/Lab3/lab3_assign/inputs/in11");
 //    pager = new FIFO();
     readRandFile();
 //    pager = new Random();
@@ -762,7 +764,7 @@ int main(int argc, char *argv[]) {
             }
         }
 //        if(x) printPageTable();
-        if (f && instrCount <3000 ) printFrameTableR();
+        if (f && instrCount >2000) printFrameTableR();
 //        cout << "hand:";
 //        cout << pager->hand << endl;
     }
