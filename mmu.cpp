@@ -2,6 +2,8 @@
 #include <vector>
 #include <fstream>
 #include <unistd.h>
+#include <cstring>
+#include <algorithm>
 
 using namespace std;
 
@@ -357,7 +359,7 @@ class WorkingSet : public Pager {
 //frames and where you maintain reverse mappings to the process and the vpage that maps a particular frame. Note, that in this
 //assignment a frame can only be mapped by at most one PTE at a time, which simplifies things significantly
 Pager *pager;
-deque<Frame *> freeFrameList;
+vector<Frame *> freeFrameList;
 
 
 ///---------------Sub Functions about frame---------------///
@@ -397,6 +399,7 @@ bool updateFreeFrameList(int op, Frame *frame) {
         return true;
     } else if (op == ERASE) {
         auto itr = find(freeFrameList.begin(), freeFrameList.end(), frame);
+
         if (itr != freeFrameList.end()) {
             freeFrameList.erase(itr);
             return true;
@@ -617,8 +620,8 @@ void readCommand(int argc, char *argv[]) {
         count += 1;
         switch (c) {
             case 'o': {
-                string optarg_str = string(optarg);
-                for (int i = 0; i < strlen(optarg); i++) {
+                string optargStr = string(optarg);
+                for (int i = 0; i < optargStr.size(); i++) {
                     if (optarg[i] == 'O')
                         O = true;
                     if (optarg[i] == 'P')
